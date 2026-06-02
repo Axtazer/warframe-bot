@@ -2,7 +2,7 @@ const BASE = 'https://raw.githubusercontent.com/calamity-inc/warframe-public-exp
 const HEADERS = { 'User-Agent': 'WarframeDiscordBot/1.0' };
 
 const cache = new Map();
-const TTL = 3_600_000; // 1 heure — les exports changent rarement
+const TTL = 3_600_000;
 
 async function loadExport(filename) {
   const now = Date.now();
@@ -16,82 +16,101 @@ async function loadExport(filename) {
   return data;
 }
 
+async function getDict() {
+  return loadExport('dict.en.json');
+}
+
+function resolve(dict, key) {
+  if (!key || !key.startsWith('/Lotus/Language/')) return key;
+  return dict[key] ?? key.split('/').pop();
+}
+
 function normalize(str) {
   return str.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function matchesQuery(name, query) {
-  return normalize(name).includes(normalize(query));
-}
-
 async function searchMod(query) {
-  const exports = await loadExport('ExportUpgrades.json');
-  const mods = Object.values(exports).flat().filter(m => m.name && matchesQuery(m.name, query));
-  if (!mods.length) return `Aucun mod trouvé pour "${query}".`;
+  const [exports, dict] = await Promise.all([loadExport('ExportUpgrades.json'), getDict()]);
+  const entries = Object.entries(exports);
+  const matches = entries.filter(([, m]) => matchesQuery(resolve(dict, m.name), query));
+  if (!matches.length) return `Aucun mod trouvé pour "${query}".`;
 
-  const mod = mods[0];
-  let out = `**${mod.name}**`;
+  const [uniqueName, mod] = matches[0];
+  const name = resolve(dict, mod.name);
+  let out = `**${name}**`;
   if (mod.type) out += ` _(${mod.type})_`;
   out += '\n';
-  if (mod.description) out += `${mod.description}\n`;
+  if (mod.description) out += `${resolve(dict, mod.description)}\n`;
   if (mod.levelStats?.length) {
     out += '\n**Stats au rang max :**\n';
     const max = mod.levelStats[mod.levelStats.length - 1];
-    out += (max.stats ?? []).map(s => `• ${s}`).join('\n');
+    out += (max.stats ?? []).map(s => `• ${resolve(dict, s)}`).join('\n');
   }
-  if (mod.compatName) out += `\nCompatible : ${mod.compatName}`;
-  if (mods.length > 1) out += `\n\n_${mods.length - 1} autre(s) résultat(s) pour "${query}"_`;
+  if (mod.compatName) out += `\nCompatible : ${resolve(dict, mod.compatName)}`;
+  if (matches.length > 1) out += `\n\n_${matches.length - 1} autre(s) résultat(s)_`;
   return out;
 }
 
 async function searchFrame(query) {
-  const exports = await loadExport('ExportWarframes.json');
-  const frames = Object.values(exports).flat().filter(f => f.name && matchesQuery(f.name, query));
-  if (!frames.length) return `Aucun Warframe trouvé pour "${query}".`;
+  const [exports, dict] = await Promise.all([loadExport('ExportWarframes.json'), getDict()]);
+  const entries = Object.entries(exports);
+  const matches = entries.filter(([, f]) => matchesQuery(resolve(dict, f.name), query));
+  if (!matches.length) return `Aucun Warframe trouvé pour "${query}".`;
 
-  const frame = frames[0];
-  let out = `**${frame.name}**`;
+  const [, frame] = matches[0];
+  const name = resolve(dict, frame.name);
+  let out = `**${name}**`;
   if (frame.masteryReq) out += ` · MR${frame.masteryReq}`;
   out += '\n';
-  if (frame.description) out += `_${frame.description}_\n`;
+  if (frame.description) out += `_${resolve(dict, frame.description)}_\n`;
   out += '\n**Stats de base :**\n';
-  if (frame.health)  out += `• Santé : ${frame.health}\n`;
-  if (frame.shield)  out += `• Bouclier : ${frame.shield}\n`;
-  if (frame.armor)   out += `• Armure : ${frame.armor}\n`;
-  if (frame.energy)  out += `• Énergie : ${frame.energy}\n`;
+  if (frame.health)      out += `• Santé : ${frame.health}\n`;
+  if (frame.shield)      out += `• Bouclier : ${frame.shield}\n`;
+  if (frame.armor)       out += `• Armure : ${frame.armor}\n`;
+  if (frame.energy)      out += `• Énergie : ${frame.energy}\n`;
   if (frame.sprintSpeed) out += `• Sprint : ${frame.sprintSpeed}\n`;
   return out;
 }
 
 async function searchWeapon(query) {
-  const exports = await loadExport('ExportWeapons.json');
-  const weapons = Object.values(exports).flat().filter(w => w.name && matchesQuery(w.name, query));
-  if (!weapons.length) return `Aucune arme trouvée pour "${query}".`;
+  const [exports, dict] = await Promise.all([loadExport('ExportWeapons.json'), getDict()]);
+  const entries = Object.entries(exports);
+  const matches = entries.filter(([, w]) => matchesQuery(resolve(dict, w.name), query));
+  if (!matches.length) return `Aucune arme trouvée pour "${query}".`;
 
-  const w = weapons[0];
-  let out = `**${w.name}**`;
-  if (w.type) out += ` _(${w.type})_`;
+  const [, w] = matches[0];
+  const name = resolve(dict, w.name);
+  let out = `**${name}**`;
+  if (w.productCategory) out += ` _(${w.productCategory})_`;
   if (w.masteryReq) out += ` · MR${w.masteryReq}`;
   out += '\n';
-  if (w.description) out += `_${w.description}_\n`;
+  if (w.description) out += `_${resolve(dict, w.description)}_\n`;
   out += '\n**Stats :**\n';
-  if (w.damage)        out += `• Dégâts : ${w.damage}\n`;
-  if (w.criticalChance) out += `• Crit chance : ${Math.round(w.criticalChance * 100)}%\n`;
-  if (w.criticalMultiplier) out += `• Crit multiplier : ${w.criticalMultiplier}x\n`;
-  if (w.procChance)    out += `• Status : ${Math.round(w.procChance * 100)}%\n`;
-  if (w.fireRate)      out += `• Cadence : ${w.fireRate}\n`;
+  if (w.totalDamage)         out += `• Dégâts : ${w.totalDamage}\n`;
+  if (w.criticalChance)      out += `• Crit chance : ${Math.round(w.criticalChance * 100)}%\n`;
+  if (w.criticalMultiplier)  out += `• Crit multiplier : ${w.criticalMultiplier}x\n`;
+  if (w.procChance)          out += `• Status : ${Math.round(w.procChance * 100)}%\n`;
+  if (w.fireRate)            out += `• Cadence : ${w.fireRate}\n`;
   return out;
 }
 
 async function getItemByUniqueName(uniqueName) {
-  const files = ['ExportUpgrades.json', 'ExportWarframes.json', 'ExportWeapons.json', 'ExportResources.json'];
+  const files = ['ExportUpgrades.json', 'ExportWarframes.json', 'ExportWeapons.json',
+                 'ExportWeapons.json', 'ExportSentinels.json', 'ExportResources.json'];
+  const dict = await getDict();
   for (const file of files) {
     const exports = await loadExport(file);
-    const items = Object.values(exports).flat();
-    const found = items.find(i => i.uniqueName === uniqueName);
-    if (found) return found;
+    const item = exports[uniqueName];
+    if (item) {
+      return { ...item, name: resolve(dict, item.name) };
+    }
   }
   return null;
+}
+
+function matchesQuery(name, query) {
+  if (!name) return false;
+  return normalize(name).includes(normalize(query));
 }
 
 module.exports = { searchMod, searchFrame, searchWeapon, getItemByUniqueName };
