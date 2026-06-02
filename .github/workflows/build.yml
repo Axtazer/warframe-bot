@@ -1,0 +1,58 @@
+name: Build & Push
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/axtazer/warframe-bot
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest
+
+      - name: Setup BuildKit
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build & Push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Dispatch digest update to harkesh-k8s
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HARKESH_PAT }}
+          repository: Axtazer/harkesh-k8s
+          event-type: image-updated
+          client-payload: >-
+            {
+              "app": "warframe-bot",
+              "image": "ghcr.io/axtazer/warframe-bot",
+              "digest": "${{ steps.build.outputs.digest }}"
+            }
