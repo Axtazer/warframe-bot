@@ -1,38 +1,24 @@
 const db = require('../database');
 const { getItemByUniqueName } = require('./gameData');
 
-async function parseDat(buffer) {
-  const preview = buffer.slice(0, 100).toString('utf8');
-  const hex     = buffer.slice(0, 16).toString('hex');
-  console.log('[import] taille:', buffer.length, '| hex début:', hex, '| texte début:', JSON.stringify(preview));
+const AES_KEY = Buffer.from('LEO-ALEC\tEO-ALEC', 'binary');
+const AES_IV  = Buffer.from([49, 50, 70, 71, 66, 51, 54, 45, 76, 69, 51, 45, 113, 61, 57, 0]);
 
-  // Essai 1 : JSON brut
+async function parseDat(buffer) {
+  // Essai 1 : AES-128-CBC (format lastData.dat AlecaFrame / warframe-api-helper)
+  try {
+    const { createDecipheriv } = require('crypto');
+    const decipher = createDecipheriv('aes-128-cbc', AES_KEY, AES_IV);
+    const decrypted = Buffer.concat([decipher.update(buffer), decipher.final()]);
+    let data = JSON.parse(decrypted.toString('utf8'));
+    if (data.InventoryJson) data = JSON.parse(data.InventoryJson);
+    return data;
+  } catch {}
+
+  // Essai 2 : JSON brut (export direct)
   try { return JSON.parse(buffer.toString('utf8')); } catch {}
 
-  // Essai 2 : base64 → JSON
-  try { return JSON.parse(Buffer.from(buffer.toString('utf8').trim(), 'base64').toString('utf8')); } catch {}
-
-  // Essai 3 : gzip → JSON
-  try {
-    const { gunzipSync } = require('zlib');
-    return JSON.parse(gunzipSync(buffer).toString('utf8'));
-  } catch {}
-
-  // Essai 4 : zlib inflate raw
-  try {
-    const { inflateRawSync } = require('zlib');
-    return JSON.parse(inflateRawSync(buffer).toString('utf8'));
-  } catch {}
-
-  // Essai 5 : brotli
-  try {
-    const { brotliDecompressSync } = require('zlib');
-    return JSON.parse(brotliDecompressSync(buffer).toString('utf8'));
-  } catch {}
-
-  // Log pour debug
-  console.log('[import] magic bytes:', buffer.slice(0, 8).toString('hex'));
-  throw new Error('Format non reconnu — exporte depuis AlecaFrame en JSON ou .dat.');
+  throw new Error('Format non reconnu — utilise le fichier lastData.dat d\'AlecaFrame ou warframe-api-helper.');
 }
 
 function extractItems(raw) {
