@@ -34,7 +34,6 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build & Push
-        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -43,16 +42,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Dispatch digest update to harkesh-k8s
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.HARKESH_PAT }}
-          repository: Axtazer/harkesh-k8s
-          event-type: image-updated
-          client-payload: >-
-            {
-              "app": "warframe-bot",
-              "image": "ghcr.io/axtazer/warframe-bot",
-              "digest": "${{ steps.build.outputs.digest }}"
-            }
