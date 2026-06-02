@@ -161,7 +161,7 @@ async function ask(question, userId = null) {
     for (const call of response.message.tool_calls) {
       const fn   = TOOL_MAP[call.function.name];
       const args = call.function.arguments ?? {};
-      const result = fn ? await fn(args).catch(e => `Erreur : ${e.message}`) : 'Outil inconnu.';
+      const result = fn ? await Promise.resolve(fn(args)).catch(e => `Erreur : ${e.message}`) : 'Outil inconnu.';
       messages.push({ role: 'tool', content: String(result) });
     }
 
