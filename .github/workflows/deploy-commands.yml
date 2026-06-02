@@ -1,6 +1,7 @@
 name: Deploy Discord Commands
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
