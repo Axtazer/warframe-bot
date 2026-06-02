@@ -2,6 +2,10 @@ const db = require('../database');
 const { getItemByUniqueName } = require('./gameData');
 
 async function parseDat(buffer) {
+  const preview = buffer.slice(0, 100).toString('utf8');
+  const hex     = buffer.slice(0, 16).toString('hex');
+  console.log('[import] taille:', buffer.length, '| hex début:', hex, '| texte début:', JSON.stringify(preview));
+
   // Essai 1 : JSON brut
   try { return JSON.parse(buffer.toString('utf8')); } catch {}
 
@@ -12,6 +16,12 @@ async function parseDat(buffer) {
   try {
     const { gunzipSync } = require('zlib');
     return JSON.parse(gunzipSync(buffer).toString('utf8'));
+  } catch {}
+
+  // Essai 4 : zlib inflate
+  try {
+    const { inflateSync } = require('zlib');
+    return JSON.parse(inflateSync(buffer).toString('utf8'));
   } catch {}
 
   throw new Error('Format non reconnu — exporte depuis AlecaFrame en JSON ou .dat.');
