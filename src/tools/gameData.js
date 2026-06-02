@@ -1,4 +1,4 @@
-const BASE = 'https://raw.githubusercontent.com/WFCD/warframe-public-export-plus/master';
+const BASE = 'https://raw.githubusercontent.com/calamity-inc/warframe-public-export-plus/master';
 const HEADERS = { 'User-Agent': 'WarframeDiscordBot/1.0' };
 
 const cache = new Map();
