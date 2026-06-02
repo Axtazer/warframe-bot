@@ -2,11 +2,19 @@ const db = require('../database');
 const { getItemByUniqueName } = require('./gameData');
 
 async function parseDat(buffer) {
+  // Essai 1 : JSON brut
+  try { return JSON.parse(buffer.toString('utf8')); } catch {}
+
+  // Essai 2 : base64 → JSON
+  try { return JSON.parse(Buffer.from(buffer.toString('utf8').trim(), 'base64').toString('utf8')); } catch {}
+
+  // Essai 3 : gzip → JSON
   try {
-    return JSON.parse(buffer.toString('utf8'));
-  } catch {
-    throw new Error('Fichier invalide — le .dat doit être un JSON exporté depuis AlecaFrame.');
-  }
+    const { gunzipSync } = require('zlib');
+    return JSON.parse(gunzipSync(buffer).toString('utf8'));
+  } catch {}
+
+  throw new Error('Format non reconnu — exporte depuis AlecaFrame en JSON ou .dat.');
 }
 
 function extractItems(raw) {

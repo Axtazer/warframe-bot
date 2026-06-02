@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { parseDat, processInventory } = require('../../src/tools/inventory');
 
 module.exports = {
@@ -11,7 +11,7 @@ module.exports = {
         .setRequired(true)
     ),
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const attachment = interaction.options.getAttachment('fichier');
     if (!attachment.name.endsWith('.dat') && !attachment.name.endsWith('.json')) {

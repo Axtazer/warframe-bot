@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { getInventorySummary } = require('../../src/tools/inventory');
 
 module.exports = {
@@ -6,7 +6,7 @@ module.exports = {
     .setName('inventaire')
     .setDescription('Affiche ton inventaire Warframe importé'),
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const text = await getInventorySummary(interaction.user.id.toString());
     const embed = new EmbedBuilder()
       .setDescription(text.slice(0, 4096))
