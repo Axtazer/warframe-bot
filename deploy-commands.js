@@ -24,5 +24,6 @@ const rest = new REST().setToken(token);
     console.log(`${data.length} commandes déployées sur le serveur.`);
   } catch (err) {
     console.error(err);
+    process.exit(1);
   }
 })();
