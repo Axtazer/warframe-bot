@@ -18,12 +18,20 @@ async function parseDat(buffer) {
     return JSON.parse(gunzipSync(buffer).toString('utf8'));
   } catch {}
 
-  // Essai 4 : zlib inflate
+  // Essai 4 : zlib inflate raw
   try {
-    const { inflateSync } = require('zlib');
-    return JSON.parse(inflateSync(buffer).toString('utf8'));
+    const { inflateRawSync } = require('zlib');
+    return JSON.parse(inflateRawSync(buffer).toString('utf8'));
   } catch {}
 
+  // Essai 5 : brotli
+  try {
+    const { brotliDecompressSync } = require('zlib');
+    return JSON.parse(brotliDecompressSync(buffer).toString('utf8'));
+  } catch {}
+
+  // Log pour debug
+  console.log('[import] magic bytes:', buffer.slice(0, 8).toString('hex'));
   throw new Error('Format non reconnu — exporte depuis AlecaFrame en JSON ou .dat.');
 }
 
