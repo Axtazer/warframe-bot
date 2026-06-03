@@ -9,8 +9,9 @@ async function get(endpoint) {
   if (cache.has(endpoint) && now - cache.get(endpoint).ts < TTL) {
     return cache.get(endpoint).data;
   }
-  const res = await fetch(`${BASE}${endpoint}?language=en`, { headers: HEADERS });
-  if (!res.ok) throw new Error(`warframestat.us ${endpoint} → ${res.status}`);
+  const url = `${BASE}${endpoint}?language=en`;
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) throw new Error(`warframestat.us ${url} → ${res.status}`);
   const data = await res.json();
   cache.set(endpoint, { data, ts: now });
   return data;

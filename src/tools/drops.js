@@ -40,7 +40,7 @@ async function searchDrops(query) {
     out += sources
       .sort((a, b) => b.chance - a.chance)
       .slice(0, 6)
-      .map(s => `• ${s.place} — ${s.rarity} **(${(s.chance * 100).toFixed(2)}%)**`)
+      .map(s => `• ${s.place} — ${s.rarity} **(${s.chance.toFixed(2)}%)**`)
       .join('\n');
     if (sources.length > 6) out += `\n_... et ${sources.length - 6} autres sources_`;
     out += '\n';

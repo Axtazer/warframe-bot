@@ -60,15 +60,14 @@ async function processInventory(discordId, username, raw) {
   const items = extractItems(raw);
   if (!items.length) throw new Error('Aucun item trouvé dans le fichier.');
 
-  // Résolution des noms avant la transaction (appels HTTP, ne pas bloquer la connexion DB)
+  // Résolution des noms avant la transaction (séquentiel pour éviter 100+ requêtes simultanées)
   let resolved = 0;
-  const resolved_items = await Promise.all(
-    items.map(async item => {
-      const gameItem = await getItemByUniqueName(item.uniqueName);
-      if (gameItem) resolved++;
-      return { ...item, displayName: gameItem?.name ?? item.uniqueName.split('/').pop() };
-    })
-  );
+  const resolved_items = [];
+  for (const item of items) {
+    const gameItem = await getItemByUniqueName(item.uniqueName);
+    if (gameItem) resolved++;
+    resolved_items.push({ ...item, displayName: gameItem?.name ?? item.uniqueName.split('/').pop() });
+  }
 
   await upsertUser(discordId, username);
 
