@@ -11,7 +11,12 @@ async function get(endpoint) {
   }
   const url = `${BASE}${endpoint}?language=en`;
   const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`warframestat.us ${url} → ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    let detail = `${res.status}`;
+    try { const j = JSON.parse(body); if (j.error) detail = j.error; } catch {}
+    throw new Error(`Données live indisponibles (${detail}) — réessaie dans quelques minutes.`);
+  }
   const data = await res.json();
   cache.set(endpoint, { data, ts: now });
   return data;
