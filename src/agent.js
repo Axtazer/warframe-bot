@@ -3,17 +3,16 @@ const api = require('./tools/warframeApi');
 const game = require('./tools/gameData');
 const { formatBuildResponse } = require('./tools/builds');
 const { getInventoryContext } = require('./tools/inventory');
+const { searchDrops } = require('./tools/drops');
+const { searchWiki } = require('./tools/wiki');
 
 const ollama = new Ollama({ host: process.env.OLLAMA_HOST ?? 'http://localhost:11434' });
-const MODEL  = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
+const MODEL  = process.env.OLLAMA_MODEL ?? 'warframe-bot';
 
-const SYSTEM_PROMPT = `Tu es un expert Warframe intégré dans un serveur Discord. Tu parles en français par défaut mais tu comprends et acceptes le franglais (Serration/Serration, Steel Path/Route de l'Acier, build/build, etc.).
-
-Tu réponds aussi bien aux débutants (explications claires, pas de jargon inutile) qu'aux vétérans (termes techniques, optimisations min-max).
-
-Pour les données live du jeu (fissures, sortie, baro, etc.), utilise TOUJOURS les outils disponibles plutôt que tes connaissances internes — elles peuvent être obsolètes.
-
-Sois concis et précis. Utilise le formatage Markdown (gras, listes) pour la lisibilité Discord.`;
+const BASE_SYSTEM_PROMPT = `Tu es l'assistant IA Warframe de ce serveur Discord. Réponds en français, court et formatté pour Discord (Markdown : gras, listes, \`code\`).
+Tu maîtrises le modding (Primed, Galvanized, Corrupted), les dégâts IPS (Tranchant/Viral/Corrosif), le Helminth et le Steel Path.
+Pour les données live (fissures, Baro, Sortie, Nightwave) utilise TOUJOURS les outils — tes connaissances internes peuvent être obsolètes.
+Pour farmer un item utilise searchDrops. Pour les mécaniques détaillées utilise searchWiki.`;
 
 const TOOLS = [
   {
@@ -121,6 +120,34 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'searchDrops',
+      description: 'Recherche où farmer un item (blueprint, composant, mod). Retourne les sources de drop avec les taux.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Nom de l\'item à farmer (ex: Ash Prime Neuroptics, Primed Flow, Gauss Blueprint)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'searchWiki',
+      description: 'Recherche des informations sur le wiki Warframe (mécaniques, capacités, ennemis, lore).',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Sujet à rechercher (ex: Slash proc, Arbitrations, Kuva Lich, Galvanized mods)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 const TOOL_MAP = {
@@ -134,16 +161,18 @@ const TOOL_MAP = {
   searchMod:    ({ query }) => game.searchMod(query),
   searchFrame:  ({ query }) => game.searchFrame(query),
   searchWeapon: ({ query }) => game.searchWeapon(query),
-  getBuildLink: ({ name }) => formatBuildResponse(name),
+  getBuildLink:  ({ name })  => formatBuildResponse(name),
+  searchDrops:   ({ query }) => searchDrops(query),
+  searchWiki:    ({ query }) => searchWiki(query),
 };
 
 async function ask(question, userId = null) {
-  let systemContent = SYSTEM_PROMPT;
+  let systemContent = BASE_SYSTEM_PROMPT;
 
   if (userId) {
     const inv = await getInventoryContext(userId).catch(() => null);
     if (inv) {
-      systemContent += '\n\nInventaire de l\'utilisateur :\n' + JSON.stringify(inv, null, 2);
+      systemContent += '\n\n[INVENTAIRE DU JOUEUR (AlecaFrame)]:\n' + JSON.stringify(inv);
     }
   }
 

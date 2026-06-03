@@ -1,11 +1,10 @@
-const db = require('../database');
+const { pool, upsertUser } = require('../database');
 const { getItemByUniqueName } = require('./gameData');
 
 const AES_KEY = Buffer.from('LEO-ALEC\tEO-ALEC', 'binary');
 const AES_IV  = Buffer.from([49, 50, 70, 71, 66, 51, 54, 45, 76, 69, 51, 45, 113, 61, 57, 0]);
 
 async function parseDat(buffer) {
-  // Essai 1 : AES-128-CBC (format lastData.dat AlecaFrame / warframe-api-helper)
   try {
     const { createDecipheriv } = require('crypto');
     const decipher = createDecipheriv('aes-128-cbc', AES_KEY, AES_IV);
@@ -15,7 +14,6 @@ async function parseDat(buffer) {
     return data;
   } catch {}
 
-  // Essai 2 : JSON brut (export direct)
   try { return JSON.parse(buffer.toString('utf8')); } catch {}
 
   throw new Error('Format non reconnu — utilise le fichier lastData.dat d\'AlecaFrame ou warframe-api-helper.');
@@ -25,7 +23,6 @@ function extractItems(raw) {
   const items = [];
   const inv = raw?.Inventory ?? raw;
 
-  // Mods
   for (const mod of inv?.Upgrades ?? []) {
     if (!mod.ItemType) continue;
     items.push({
@@ -36,25 +33,21 @@ function extractItems(raw) {
     });
   }
 
-  // Warframes
   for (const frame of inv?.Suits ?? []) {
     if (!frame.ItemType) continue;
     items.push({ uniqueName: frame.ItemType, itemType: 'Warframe', itemCount: 1, itemRank: 0 });
   }
 
-  // Armes primaires
   for (const w of inv?.LongGuns ?? []) {
     if (!w.ItemType) continue;
     items.push({ uniqueName: w.ItemType, itemType: 'Primary', itemCount: 1, itemRank: 0 });
   }
 
-  // Armes secondaires
   for (const w of inv?.Pistols ?? []) {
     if (!w.ItemType) continue;
     items.push({ uniqueName: w.ItemType, itemType: 'Secondary', itemCount: 1, itemRank: 0 });
   }
 
-  // Mêlée
   for (const w of inv?.Melee ?? []) {
     if (!w.ItemType) continue;
     items.push({ uniqueName: w.ItemType, itemType: 'Melee', itemCount: 1, itemRank: 0 });
@@ -67,24 +60,49 @@ async function processInventory(discordId, username, raw) {
   const items = extractItems(raw);
   if (!items.length) throw new Error('Aucun item trouvé dans le fichier.');
 
-  await db.upsertUser(discordId, username);
-  await db.clearInventory(discordId);
-
+  // Résolution des noms avant la transaction (appels HTTP, ne pas bloquer la connexion DB)
   let resolved = 0;
-  for (const item of items) {
-    const gameItem = await getItemByUniqueName(item.uniqueName);
-    await db.upsertInventoryItem(discordId, {
-      ...item,
-      displayName: gameItem?.name ?? item.uniqueName.split('/').pop(),
-    });
-    if (gameItem) resolved++;
+  const resolved_items = await Promise.all(
+    items.map(async item => {
+      const gameItem = await getItemByUniqueName(item.uniqueName);
+      if (gameItem) resolved++;
+      return { ...item, displayName: gameItem?.name ?? item.uniqueName.split('/').pop() };
+    })
+  );
+
+  await upsertUser(discordId, username);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query('DELETE FROM inventory_items WHERE discord_id = $1', [discordId]);
+
+    for (const item of resolved_items) {
+      await client.query(
+        `INSERT INTO inventory_items (discord_id, unique_name, display_name, item_type, item_count, item_rank)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [discordId, item.uniqueName, item.displayName, item.itemType, item.itemCount ?? 1, item.itemRank ?? 0]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[INVENTORY] Rollback exécuté :', err);
+    throw err;
+  } finally {
+    client.release();
   }
 
   return { total: items.length, resolved };
 }
 
 async function getInventorySummary(discordId) {
-  const rows = await db.getUserInventory(discordId);
+  const { rows } = await pool.query(
+    'SELECT unique_name, display_name, item_type, item_count, item_rank FROM inventory_items WHERE discord_id = $1 ORDER BY item_type, display_name',
+    [discordId]
+  );
   if (!rows.length) return 'Aucun inventaire importé. Utilise `/import` pour charger ton fichier AlecaFrame.';
 
   const grouped = {};
@@ -98,7 +116,7 @@ async function getInventorySummary(discordId) {
   for (const [type, list] of Object.entries(grouped)) {
     out += `\n**${type}** (${list.length})\n`;
     out += list.slice(0, 10).map(i => {
-      const rank = i.item_rank > 0 ? ` R${i.item_rank}` : '';
+      const rank  = i.item_rank  > 0 ? ` R${i.item_rank}`  : '';
       const count = i.item_count > 1 ? ` x${i.item_count}` : '';
       return `• ${i.display_name}${rank}${count}`;
     }).join('\n');
@@ -109,7 +127,10 @@ async function getInventorySummary(discordId) {
 }
 
 async function getInventoryContext(discordId) {
-  const rows = await db.getUserInventory(discordId);
+  const { rows } = await pool.query(
+    'SELECT display_name, item_type, item_rank FROM inventory_items WHERE discord_id = $1 ORDER BY item_type, display_name',
+    [discordId]
+  );
   if (!rows.length) return null;
 
   const grouped = {};

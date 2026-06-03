@@ -12,6 +12,7 @@ COPY --from=builder /app/package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 COPY --from=builder /app/index.js ./
+COPY --from=builder /app/Modelfile ./
 COPY --from=builder /app/deploy-commands.js ./
 COPY --from=builder /app/commands ./commands
 COPY --from=builder /app/events ./events

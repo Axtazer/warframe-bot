@@ -1,9 +1,22 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Options } = require('discord.js');
+const { Ollama } = require('ollama');
 require('dotenv').config();
 
 const db = require('./src/database');
+
+async function ensureModel() {
+  const modelfile = fs.readFileSync(path.join(__dirname, 'Modelfile'), 'utf8');
+  const ollama = new Ollama({ host: process.env.OLLAMA_HOST ?? 'http://localhost:11434' });
+  const model  = process.env.OLLAMA_MODEL ?? 'warframe-bot';
+  console.log(`[MODEL] Création/mise à jour de ${model}...`);
+  const stream = await ollama.create({ model, modelfile, stream: true });
+  for await (const chunk of stream) {
+    if (chunk.status && chunk.status !== 'success') process.stdout.write(`[MODEL] ${chunk.status}\r`);
+  }
+  console.log(`[MODEL] ${model} prêt.`);
+}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -37,6 +50,7 @@ for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
 
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 
-db.init()
+ensureModel()
+  .then(() => db.init())
   .then(() => client.login(process.env.DISCORD_TOKEN))
   .catch(err => { console.error('Erreur démarrage:', err); process.exit(1); });
