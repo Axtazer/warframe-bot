@@ -3,8 +3,9 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env'
 const { Pool } = require('pg');
 
 const HEADERS  = { 'User-Agent': 'WarframeBot-Scraper/1.0 (homelab; github.com/Axtazer/warframe-bot)' };
-const DELAY_MS = 2500;
-const WFSTAT   = 'https://api.warframestat.us';
+const DELAY_MS = 400;        // ~2-3 req/s, dans les clous d'Overframe
+const MAX_ID   = 6600;       // marge au-dessus des 6554 connus
+const BASE_URL = 'https://overframe.gg/items/arsenal';
 
 const pool = new Pool({
   host:     process.env.POSTGRES_HOST     ?? 'localhost',
@@ -16,12 +17,8 @@ const pool = new Pool({
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function slugify(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-
-async function fetchNextData(url) {
-  const res = await fetch(url, { headers: HEADERS });
+async function fetchNextData(id) {
+  const res = await fetch(`${BASE_URL}/${id}`, { headers: HEADERS });
   if (!res.ok) return null;
   const html = await res.text();
   const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
@@ -35,7 +32,7 @@ function extractModName(m) {
 }
 
 function extractMods(build) {
-  const raw = build.mods ?? build.modLoadout ?? build.modules ?? build.config ?? [];
+  const raw = build.mods ?? build.modLoadout ?? build.modules ?? build.config ?? build.items ?? [];
   return Array.isArray(raw) ? raw.map(extractModName).filter(Boolean).slice(0, 8) : [];
 }
 
@@ -51,59 +48,50 @@ function inferTags(title) {
   return tags;
 }
 
-async function scrapeItem(name, itemType) {
-  const slug     = slugify(name);
-  const category = itemType === 'warframe' ? 'warframes' : 'weapons';
-  const nextData = await fetchNextData(`https://overframe.gg/${category}/${slug}/`).catch(() => null);
-  if (!nextData) return 0;
-
-  const pp   = nextData?.props?.pageProps ?? {};
-  const raw  = pp.builds ?? pp.topBuilds ?? pp.data?.builds ?? pp[category.slice(0,-1)]?.builds ?? [];
-  const builds = Array.isArray(raw) ? raw : [];
-  if (!builds.length) return 0;
-
-  let upserted = 0;
-  for (const build of builds.slice(0, 10)) {
-    const mods = extractMods(build);
-    if (!mods.length) continue;
-
-    const title    = (build.title ?? build.name ?? 'Build communautaire').slice(0, 254);
-    const rating   = build.upvotes ?? build.score ?? build.rating ?? 0;
-    const hr       = build.helminthAbility ?? build.helminth ?? build.helminthSlot;
-    const helminth = hr ? (typeof hr === 'string' ? hr : hr.name ?? null) : null;
-    const tags     = inferTags(title);
-
-    await pool.query(
-      `INSERT INTO warframe_builds (item_name, item_type, build_title, mods, helminth, rating, tags)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (item_name, build_title) DO UPDATE SET
-         mods       = EXCLUDED.mods,
-         helminth   = EXCLUDED.helminth,
-         rating     = EXCLUDED.rating,
-         tags       = EXCLUDED.tags,
-         scraped_at = NOW()`,
-      [name, itemType, title, JSON.stringify(mods), helminth, rating, JSON.stringify(tags)]
-    );
-    upserted++;
-  }
-  return upserted;
+function inferType(item) {
+  if (!item) return 'unknown';
+  if (item.abilities || item.health !== undefined) return 'warframe';
+  if (item.totalDamage || item.fireRate !== undefined) return 'weapon';
+  const cat = (item.category ?? item.productCategory ?? '').toLowerCase();
+  if (cat.includes('warframe') || cat.includes('suit')) return 'warframe';
+  return 'weapon';
 }
 
-async function fetchItemList(endpoint) {
-  const res = await fetch(`${WFSTAT}/${endpoint}/?language=en`, { headers: HEADERS });
-  if (!res.ok) throw new Error(`warframestat.us /${endpoint} → ${res.status}`);
-  const data = await res.json();
-  return [...new Set(data.map(i => i.name).filter(Boolean))];
+async function processId(id) {
+  const nextData = await fetchNextData(id).catch(() => null);
+  if (!nextData) return null;
+
+  const pp   = nextData?.props?.pageProps ?? {};
+  const item = pp.item ?? pp.warframe ?? pp.weapon;
+  if (!item?.name) return null;
+
+  // Debug structure sur les 3 premiers items trouvés
+  if (id <= 10) {
+    process.stderr.write(`[DEBUG] ID ${id} (${item.name}) pageProps keys: ${JSON.stringify(Object.keys(pp))}\n`);
+  }
+
+  const rawBuilds = pp.builds ?? pp.topBuilds ?? pp.data?.builds ?? item.builds ?? [];
+  if (!Array.isArray(rawBuilds) || !rawBuilds.length) return { name: item.name, type: inferType(item), builds: [] };
+
+  const builds = rawBuilds.slice(0, 10).map(b => {
+    const hr = b.helminthAbility ?? b.helminth ?? b.helminthSlot;
+    return {
+      title:    (b.title ?? b.name ?? 'Build communautaire').slice(0, 254),
+      rating:   b.upvotes ?? b.score ?? b.rating ?? 0,
+      mods:     extractMods(b),
+      helminth: hr ? (typeof hr === 'string' ? hr : hr.name ?? null) : null,
+    };
+  }).filter(b => b.mods.length > 0);
+
+  return { name: item.name, type: inferType(item), builds };
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const onlyWarframes = args.includes('--warframes-only');
-  const onlyWeapons   = args.includes('--weapons-only');
+  const startId = parseInt(process.argv[2] ?? '1');
+  const endId   = parseInt(process.argv[3] ?? String(MAX_ID));
 
-  console.log('[SCRAPER] Démarrage...');
+  console.log(`[SCRAPER] IDs ${startId} → ${endId} (~${Math.ceil((endId - startId) * DELAY_MS / 60000)} min)`);
 
-  // Garantir que la table existe (idempotent)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS warframe_builds (
       id SERIAL PRIMARY KEY, item_name VARCHAR(100) NOT NULL,
@@ -116,40 +104,40 @@ async function main() {
     CREATE INDEX IF NOT EXISTS idx_builds_item_name ON warframe_builds(item_name);
   `);
 
-  const targets = [];
+  let totalBuilds = 0, itemsWithBuilds = 0;
 
-  if (!onlyWeapons) {
-    const frames = await fetchItemList('warframes');
-    console.log(`[SCRAPER] ${frames.length} Warframes`);
-    frames.forEach(n => targets.push({ name: n, type: 'warframe' }));
-  }
-
-  if (!onlyWarframes) {
-    const weapons = await fetchItemList('weapons');
-    console.log(`[SCRAPER] ${weapons.length} Armes`);
-    weapons.forEach(n => targets.push({ name: n, type: 'weapon' }));
-  }
-
-  console.log(`[SCRAPER] Total : ${targets.length} items à scraper (~${Math.ceil(targets.length * DELAY_MS / 60000)} min)`);
-
-  let totalBuilds = 0, scraped = 0;
-
-  for (let i = 0; i < targets.length; i++) {
-    const { name, type } = targets[i];
+  for (let id = startId; id <= endId; id++) {
     try {
-      const count = await scrapeItem(name, type);
-      if (count > 0) {
-        process.stdout.write(`[${i+1}/${targets.length}] ✓ ${name} — ${count} builds\n`);
-        totalBuilds += count;
-        scraped++;
+      const result = await processId(id);
+      if (!result) { await sleep(DELAY_MS); continue; }
+
+      const { name, type, builds } = result;
+      let upserted = 0;
+
+      for (const b of builds) {
+        await pool.query(
+          `INSERT INTO warframe_builds (item_name, item_type, build_title, mods, helminth, rating, tags)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (item_name, build_title) DO UPDATE SET
+             mods=EXCLUDED.mods, helminth=EXCLUDED.helminth,
+             rating=EXCLUDED.rating, tags=EXCLUDED.tags, scraped_at=NOW()`,
+          [name, type, b.title, JSON.stringify(b.mods), b.helminth, b.rating, JSON.stringify(inferTags(b.title))]
+        );
+        upserted++;
+      }
+
+      if (upserted > 0) {
+        process.stdout.write(`[${id}] ✓ ${name} (${type}) — ${upserted} builds\n`);
+        totalBuilds += upserted;
+        itemsWithBuilds++;
       }
     } catch (e) {
-      process.stderr.write(`[${i+1}/${targets.length}] ✗ ${name}: ${e.message}\n`);
+      process.stderr.write(`[${id}] ✗ ${e.message}\n`);
     }
     await sleep(DELAY_MS);
   }
 
-  console.log(`[SCRAPER] Terminé : ${scraped}/${targets.length} items, ${totalBuilds} builds en DB.`);
+  console.log(`[SCRAPER] Terminé : ${itemsWithBuilds} items, ${totalBuilds} builds en DB.`);
   await pool.end();
 }
 
