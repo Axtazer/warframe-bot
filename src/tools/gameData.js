@@ -129,6 +129,42 @@ async function searchWeapon(query) {
   return out;
 }
 
+// ── searchModsByType — catalogue complet pour les builds ─────────────────────
+
+const TYPE_MAP = {
+  rifle: 'Rifle', longguns: 'Rifle', primary: 'Rifle',
+  pistol: 'Pistol', secondary: 'Pistol',
+  melee: 'Melee',
+  shotgun: 'Shotgun',
+  sniper: 'Sniper Rifle',
+  warframe: 'Warframe',
+  sentinel: 'Companion',
+};
+
+async function searchModsByType(type) {
+  const compatName = TYPE_MAP[type.toLowerCase().replace(/\s+/g, '')] ?? type;
+
+  const { rows } = await pool.query(
+    `SELECT name, data FROM wf_knowledge
+     WHERE category = 'mod'
+       AND (data->>'compatName' = $1 OR data->>'compatName' IS NULL AND $1 = 'Warframe')
+     ORDER BY (data->>'baseDrain')::int DESC NULLS LAST
+     LIMIT 60`,
+    [compatName]
+  );
+
+  if (!rows.length) return `Aucun mod trouvé pour le type "${type}".`;
+
+  let out = `**Mods compatibles ${compatName} (rang max) :**\n`;
+  for (const row of rows) {
+    const mod  = row.data;
+    const max  = mod.levelStats?.[mod.levelStats.length - 1]?.stats ?? [];
+    const stat = max.join(' / ').slice(0, 120);
+    out += `• **${mod.name}** _(${mod.rarity}, ${mod.baseDrain} drain)_ — ${stat}\n`;
+  }
+  return out;
+}
+
 // ── getItemByUniqueName (inventaire, calamity-inc) ───────────────────────────
 
 async function getItemByUniqueName(uniqueName) {
@@ -143,4 +179,4 @@ async function getItemByUniqueName(uniqueName) {
   return null;
 }
 
-module.exports = { searchMod, searchFrame, searchWeapon, getItemByUniqueName };
+module.exports = { searchMod, searchFrame, searchWeapon, searchModsByType, getItemByUniqueName };

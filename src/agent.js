@@ -2,6 +2,7 @@ const { Ollama } = require('ollama');
 const api = require('./tools/warframeApi');
 const game = require('./tools/gameData');
 const { getInventoryContext } = require('./tools/inventory');
+const { searchModsByType } = require('./tools/gameData');
 const { searchDrops } = require('./tools/drops');
 const { searchWiki } = require('./tools/wiki');
 const { searchBuilds } = require('./tools/overframe');
@@ -23,10 +24,13 @@ STYLE DE RÉPONSE selon le type de question :
 LORE / HISTOIRE : Réponds de façon concise — un résumé clair et compréhensible, pas un dump de wiki. 3-5 phrases max sauf si l'utilisateur demande explicitement plus de détails ("explique en détail", "raconte tout", "approfondi").
 
 BUILDS : Réponds de façon complète et pédagogique.
-  OBLIGATOIRE avant de recommander un mod : appelle searchMod pour vérifier qu'il existe et que son champ "Compatible" correspond bien à la catégorie demandée (Rifle/Pistol/Melee/Shotgun pour une arme, ou le nom du Warframe pour une capacité). Ne recommande JAMAIS un mod de Warframe pour une arme, ni l'inverse.
-  Si searchBuilds retourne uniquement un lien URL sans données de build, dis-le clairement et base-toi sur les stats de l'arme/frame via searchMod et searchFrame/searchWeapon.
-  Pour chaque mod explique : son rôle, pourquoi il est combiné avec les autres (synergies), sa place dans la rotation.
-  Inclus toujours les Arcanes recommandées (searchWiki si besoin) et leur interaction avec le build.`;
+  ÉTAPES OBLIGATOIRES dans l'ordre :
+  1. searchWeapon ou searchFrame → stats réelles de l'item
+  2. searchModsByType(type) → catalogue complet des mods compatibles avec leurs vraies stats
+  3. searchBuilds → builds communautaires si disponibles
+  Ne recommande QUE des mods présents dans le résultat de searchModsByType. Jamais de mods inventés.
+  Pour chaque mod retenu : son rôle, ses synergies avec les autres, sa place dans la rotation dégâts/survie.
+  Inclus les Arcanes recommandées (searchWiki) et leur interaction avec le build.`;
 
 const TOOLS = [
   {
@@ -123,6 +127,20 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'searchModsByType',
+      description: 'Retourne tous les mods disponibles pour un type d\'arme ou Warframe avec leurs stats au rang max. Utilise en PREMIER pour les builds afin d\'avoir le catalogue complet des mods compatibles.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: 'Type : Rifle, Pistol, Melee, Shotgun, Sniper, Warframe' },
+        },
+        required: ['type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'searchBuilds',
       description: 'Récupère les builds meta communautaires Overframe.gg pour un Warframe ou une arme : mods les plus utilisés, top builds notés, substituts Helminth. À utiliser dès qu\'on parle de build, modding ou theorycraft.',
       parameters: {
@@ -175,7 +193,8 @@ const TOOL_MAP = {
   searchMod:    ({ query }) => game.searchMod(query),
   searchFrame:  ({ query }) => game.searchFrame(query),
   searchWeapon: ({ query }) => game.searchWeapon(query),
-  searchBuilds:  ({ query }) => searchBuilds(query),
+  searchModsByType: ({ type }) => searchModsByType(type),
+  searchBuilds:     ({ query }) => searchBuilds(query),
   searchDrops:   ({ query }) => searchDrops(query),
   searchWiki:    ({ query }) => searchWiki(query),
 };
