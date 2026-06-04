@@ -49,6 +49,28 @@ async function init() {
       CONSTRAINT unique_item_build UNIQUE (item_name, build_title)
     );
     CREATE INDEX IF NOT EXISTS idx_builds_item_name ON warframe_builds(item_name);
+
+    CREATE TABLE IF NOT EXISTS wf_knowledge (
+      id          SERIAL PRIMARY KEY,
+      unique_name TEXT UNIQUE,
+      name        TEXT NOT NULL,
+      category    TEXT NOT NULL,
+      data        JSONB NOT NULL,
+      search_vec  TSVECTOR,
+      updated_at  TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_name     ON wf_knowledge(LOWER(name));
+    CREATE INDEX IF NOT EXISTS idx_wf_category ON wf_knowledge(category);
+    CREATE INDEX IF NOT EXISTS idx_wf_search   ON wf_knowledge USING GIN(search_vec);
+
+    CREATE TABLE IF NOT EXISTS wiki_pages (
+      id         SERIAL PRIMARY KEY,
+      title      TEXT UNIQUE NOT NULL,
+      content    TEXT NOT NULL,
+      search_vec TSVECTOR,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wiki_search ON wiki_pages USING GIN(search_vec);
   `);
   console.log('[DB] Tables prêtes.');
 }

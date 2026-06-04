@@ -1,16 +1,16 @@
-const WFSTAT  = 'https://api.warframestat.us';
+const { pool } = require('../database');
+const WFSTAT   = 'https://api.warframestat.us';
 const CALAMITY = 'https://raw.githubusercontent.com/calamity-inc/warframe-public-export-plus/master';
 const HEADERS  = { 'User-Agent': 'WarframeDiscordBot/1.0' };
 
-// Cache calamity-inc (uniqueName lookup pour l'inventaire)
+// ── Cache calamity-inc (uniqueName → inventaire uniquement) ──────────────────
 const exportCache = new Map();
 const EXPORT_TTL  = 3_600_000;
 
 async function loadExport(filename) {
   const now = Date.now();
-  if (exportCache.has(filename) && now - exportCache.get(filename).ts < EXPORT_TTL) {
+  if (exportCache.has(filename) && now - exportCache.get(filename).ts < EXPORT_TTL)
     return exportCache.get(filename).data;
-  }
   const res = await fetch(`${CALAMITY}/${filename}`, { headers: HEADERS });
   if (!res.ok) throw new Error(`calamity-inc ${filename} → ${res.status}`);
   const data = await res.json();
@@ -18,29 +18,59 @@ async function loadExport(filename) {
   return data;
 }
 
-async function getDict() {
-  return loadExport('dict.en.json');
-}
-
+async function getDict() { return loadExport('dict.en.json'); }
 function resolve(dict, key) {
   if (!key || !key.startsWith('/Lotus/Language/')) return key;
   return dict[key] ?? key.split('/').pop();
 }
 
-// Recherche via warframestat.us (noms déjà résolus, données complètes)
+// ── DB locale (wf_knowledge) ─────────────────────────────────────────────────
+
+async function queryKnowledge(query, category) {
+  const { rows } = await pool.query(
+    `SELECT name, data FROM wf_knowledge
+     WHERE category = $1
+       AND (LOWER(name) LIKE LOWER($2) OR search_vec @@ plainto_tsquery('english', $3))
+     ORDER BY LOWER(name) = LOWER($3) DESC, ts_rank(search_vec, plainto_tsquery('english', $3)) DESC
+     LIMIT 5`,
+    [category, `%${query}%`, query]
+  );
+  return rows;
+}
+
+// ── Fallback live warframestat.us ─────────────────────────────────────────────
+
 async function wfstatSearch(endpoint, query) {
   const res = await fetch(
-    `${WFSTAT}/${endpoint}/search/${encodeURIComponent(query)}?language=en`,
+    `${WFSTAT}/${endpoint}/search/${encodeURIComponent(query)}/?language=en`,
     { headers: HEADERS }
   );
   if (!res.ok) throw new Error(`warframestat.us /${endpoint}/search → ${res.status}`);
   return res.json();
 }
 
+// ── searchMod ────────────────────────────────────────────────────────────────
+
 async function searchMod(query) {
+  const rows = await queryKnowledge(query, 'mod').catch(() => []);
+  if (rows.length) {
+    const mod = rows[0].data;
+    let out = `**${mod.name}**`;
+    if (mod.type)       out += ` _(${mod.type})_`;
+    if (mod.rarity)     out += ` · ${mod.rarity}`;
+    if (mod.compatName) out += ` · Compatible : ${mod.compatName}`;
+    out += '\n';
+    if (mod.levelStats?.length) {
+      out += '\n**Stats au rang max :**\n';
+      const max = mod.levelStats[mod.levelStats.length - 1];
+      out += (max.stats ?? []).map(s => `• ${s}`).join('\n');
+    }
+    if (rows.length > 1) out += `\n\n_${rows.length - 1} autre(s) résultat(s)_`;
+    return out;
+  }
+  // Fallback live
   const results = await wfstatSearch('mods', query);
   if (!results.length) return `Aucun mod trouvé pour "${query}".`;
-
   const mod = results[0];
   let out = `**${mod.name}**`;
   if (mod.type)       out += ` _(${mod.type})_`;
@@ -52,15 +82,15 @@ async function searchMod(query) {
     const max = mod.levelStats[mod.levelStats.length - 1];
     out += (max.stats ?? []).map(s => `• ${s}`).join('\n');
   }
-  if (results.length > 1) out += `\n\n_${results.length - 1} autre(s) résultat(s)_`;
   return out;
 }
 
-async function searchFrame(query) {
-  const results = await wfstatSearch('warframes', query);
-  if (!results.length) return `Aucun Warframe trouvé pour "${query}".`;
+// ── searchFrame ───────────────────────────────────────────────────────────────
 
-  const f = results[0];
+async function searchFrame(query) {
+  const rows = await queryKnowledge(query, 'warframe').catch(() => []);
+  const f = rows.length ? rows[0].data : (await wfstatSearch('warframes', query))[0];
+  if (!f) return `Aucun Warframe trouvé pour "${query}".`;
   let out = `**${f.name}**`;
   if (f.masteryReq) out += ` · MR${f.masteryReq}`;
   out += '\n';
@@ -71,14 +101,19 @@ async function searchFrame(query) {
   if (f.armor)       out += `• Armure : ${f.armor}\n`;
   if (f.power)       out += `• Énergie : ${f.power}\n`;
   if (f.sprintSpeed) out += `• Sprint : ${f.sprintSpeed}\n`;
+  if (f.abilities?.length) {
+    out += '\n**Capacités :**\n';
+    out += f.abilities.map(a => `• **${a.name}** — ${a.description?.slice(0, 120)}`).join('\n');
+  }
   return out;
 }
 
-async function searchWeapon(query) {
-  const results = await wfstatSearch('weapons', query);
-  if (!results.length) return `Aucune arme trouvée pour "${query}".`;
+// ── searchWeapon ─────────────────────────────────────────────────────────────
 
-  const w = results[0];
+async function searchWeapon(query) {
+  const rows = await queryKnowledge(query, 'weapon').catch(() => []);
+  const w = rows.length ? rows[0].data : (await wfstatSearch('weapons', query))[0];
+  if (!w) return `Aucune arme trouvée pour "${query}".`;
   let out = `**${w.name}**`;
   if (w.productCategory) out += ` _(${w.productCategory})_`;
   if (w.masteryReq)      out += ` · MR${w.masteryReq}`;
@@ -94,7 +129,8 @@ async function searchWeapon(query) {
   return out;
 }
 
-// Résolution par uniqueName pour l'inventaire (calamity-inc uniquement)
+// ── getItemByUniqueName (inventaire, calamity-inc) ───────────────────────────
+
 async function getItemByUniqueName(uniqueName) {
   const files = ['ExportUpgrades.json', 'ExportWarframes.json', 'ExportWeapons.json',
                  'ExportSentinels.json', 'ExportResources.json'];
