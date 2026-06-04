@@ -9,7 +9,7 @@ async function get(endpoint) {
   if (cache.has(endpoint) && now - cache.get(endpoint).ts < TTL) {
     return cache.get(endpoint).data;
   }
-  const url = `${BASE}${endpoint}?language=en`;
+  const url = `${BASE}${endpoint}/?language=en`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -32,8 +32,9 @@ function formatReward(reward) {
 async function getFissures() {
   const data = await get('/fissures');
   const tiers = ['Lith', 'Meso', 'Neo', 'Axi', 'Requiem'];
-  const normal = data.filter(f => !f.isStorm && !f.isHard);
-  const steel  = data.filter(f => f.isHard);
+  const now = Date.now();
+  const normal = data.filter(f => !f.isStorm && !f.isHard && new Date(f.expiry) > now);
+  const steel  = data.filter(f => f.isHard && new Date(f.expiry) > now);
 
   let out = '**Fissures Void actives**\n';
   for (const tier of tiers) {
@@ -133,9 +134,10 @@ async function getSteelPath() {
 
 async function getEvents() {
   const data = await get('/events');
-  if (!data?.length) return 'Aucun événement actif.';
+  const active = (data ?? []).filter(e => new Date(e.expiry) > Date.now());
+  if (!active.length) return 'Aucun événement actif.';
   let out = '**Événements actifs**\n';
-  for (const e of data) {
+  for (const e of active) {
     out += `\n**${e.description}**\n`;
     if (e.tooltip) out += `${e.tooltip.slice(0, 300)}\n`;
     out += `Nœud : ${e.node} · Expire <t:${Math.floor(new Date(e.expiry).getTime()/1000)}:R>\n`;
