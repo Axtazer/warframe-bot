@@ -1,10 +1,50 @@
-const HEADERS = { 'User-Agent': 'WarframeDiscordBot/1.0' };
-const cache = new Map();
-const TTL = 30 * 60 * 1000;
+const { pool } = require('../database');
+const HEADERS  = { 'User-Agent': 'WarframeDiscordBot/1.0' };
+const liveCache = new Map();
+const LIVE_TTL  = 30 * 60 * 1000;
 
 function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
+
+// ── Formatage commun ──────────────────────────────────────────────────────────
+
+function formatBuilds(itemName, builds) {
+  if (!builds.length) return `Aucun build trouvé pour "${itemName}".`;
+
+  const modCount = {};
+  for (const b of builds) {
+    for (const m of (b.mods ?? [])) modCount[m] = (modCount[m] || 0) + 1;
+  }
+  const most_used_mods = Object.entries(modCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, popularity: `${Math.round(count / builds.length * 100)}%` }));
+
+  const top_community_builds = builds.slice(0, 3).map(b => {
+    const entry = { title: b.build_title ?? b.title, rating: b.rating ?? 0, mods: b.mods ?? [] };
+    if (b.helminth) entry.helminth_substitute = b.helminth;
+    return entry;
+  });
+
+  return JSON.stringify({ item: itemName, most_used_mods, top_community_builds });
+}
+
+// ── Source 1 : PostgreSQL (pré-scrapé) ───────────────────────────────────────
+
+async function searchBuildsDB(query) {
+  const { rows } = await pool.query(
+    `SELECT build_title, mods, helminth, rating, tags
+     FROM warframe_builds
+     WHERE LOWER(item_name) = LOWER($1)
+     ORDER BY rating DESC
+     LIMIT 10`,
+    [query]
+  );
+  return rows;
+}
+
+// ── Source 2 : Overframe live (fallback) ──────────────────────────────────────
 
 async function fetchNextData(url) {
   const res = await fetch(url, { headers: HEADERS });
@@ -17,85 +57,61 @@ async function fetchNextData(url) {
 
 function extractModName(m) {
   if (!m) return '';
-  if (typeof m === 'string') return m;
-  return m.name ?? m.title ?? m.modName ?? m.uniqueName?.split('/').pop() ?? '';
+  return typeof m === 'string' ? m : (m.name ?? m.title ?? m.modName ?? '');
 }
 
 function extractMods(build) {
   const raw = build.mods ?? build.modLoadout ?? build.modules ?? build.config ?? [];
-  if (!Array.isArray(raw)) return [];
-  return raw.map(extractModName).filter(Boolean).slice(0, 8);
+  return Array.isArray(raw) ? raw.map(extractModName).filter(Boolean).slice(0, 8) : [];
 }
 
-function condensBuilds(nextData, query) {
-  const pageProps = nextData?.props?.pageProps ?? {};
+async function searchBuildsLive(query) {
+  const slug = slugify(query);
+  for (const category of ['warframes', 'weapons']) {
+    const nextData = await fetchNextData(`https://overframe.gg/${category}/${slug}/`).catch(() => null);
+    if (!nextData) continue;
 
-  // Overframe peut stocker les builds sous différentes clés selon le type de page
-  const builds =
-    pageProps.builds ??
-    pageProps.topBuilds ??
-    pageProps.data?.builds ??
-    pageProps.warframe?.builds ??
-    pageProps.weapon?.builds ??
-    [];
+    const pp     = nextData?.props?.pageProps ?? {};
+    const raw    = pp.builds ?? pp.topBuilds ?? pp.data?.builds ?? pp[category.slice(0,-1)]?.builds ?? [];
+    const builds = Array.isArray(raw) ? raw : [];
+    if (!builds.length) continue;
 
-  if (!Array.isArray(builds) || !builds.length) return null;
+    const normalized = builds.slice(0, 10).map(b => {
+      const hr = b.helminthAbility ?? b.helminth ?? b.helminthSlot;
+      return {
+        build_title: (b.title ?? b.name ?? 'Build communautaire').slice(0, 254),
+        rating:      b.upvotes ?? b.score ?? b.rating ?? 0,
+        mods:        extractMods(b),
+        helminth:    hr ? (typeof hr === 'string' ? hr : hr.name ?? null) : null,
+      };
+    }).filter(b => b.mods.length > 0);
 
-  // Popularité des mods sur les N premiers builds
-  const modCount = {};
-  const sample = builds.slice(0, 20);
-  for (const b of sample) {
-    for (const mod of extractMods(b)) {
-      modCount[mod] = (modCount[mod] || 0) + 1;
-    }
+    if (normalized.length) return normalized;
   }
-  const most_used_mods = Object.entries(modCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, count]) => ({
-      name,
-      popularity: `${Math.round((count / sample.length) * 100)}%`,
-    }));
-
-  const top_community_builds = builds.slice(0, 3).map(b => {
-    const entry = {
-      title:  b.title ?? b.name ?? 'Build communautaire',
-      rating: b.upvotes ?? b.score ?? b.rating ?? 0,
-      mods:   extractMods(b),
-    };
-    const helminth = b.helminthAbility ?? b.helminth ?? b.helminthSlot;
-    if (helminth) entry.helminth_substitute = typeof helminth === 'string' ? helminth : helminth.name;
-    return entry;
-  }).filter(b => b.mods.length > 0);
-
-  if (!top_community_builds.length) return null;
-  return { item: query, most_used_mods, top_community_builds };
+  return [];
 }
+
+// ── Point d'entrée exposé à l'agent ──────────────────────────────────────────
 
 async function searchBuilds(query) {
-  const key = query.toLowerCase();
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.ts < TTL) return hit.data;
+  // 1. Cache mémoire (live uniquement)
+  const cacheKey = query.toLowerCase();
+  const hit = liveCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < LIVE_TTL) return hit.data;
 
-  const slug = slugify(query);
-  const urls = [
-    `https://overframe.gg/warframes/${slug}/`,
-    `https://overframe.gg/weapons/${slug}/`,
-  ];
+  // 2. DB locale (pré-scrapé la nuit)
+  const dbBuilds = await searchBuildsDB(query).catch(() => []);
+  if (dbBuilds.length) return formatBuilds(query, dbBuilds);
 
-  for (const url of urls) {
-    const nextData = await fetchNextData(url).catch(() => null);
-    if (!nextData) continue;
-    const condensed = condensBuilds(nextData, query);
-    if (condensed) {
-      const data = JSON.stringify(condensed);
-      cache.set(key, { data, ts: Date.now() });
-      return data;
-    }
+  // 3. Fallback live Overframe
+  const liveBuilds = await searchBuildsLive(query);
+  if (liveBuilds.length) {
+    const data = formatBuilds(query, liveBuilds);
+    liveCache.set(cacheKey, { data, ts: Date.now() });
+    return data;
   }
 
-  // Fallback : lien de recherche si le parsing échoue
-  return `Impossible de récupérer les builds automatiquement. Consulte : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
+  return `Impossible de récupérer les builds pour "${query}". Consulte : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
 }
 
 module.exports = { searchBuilds };

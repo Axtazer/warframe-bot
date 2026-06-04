@@ -35,6 +35,20 @@ async function init() {
       data        JSONB,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS warframe_builds (
+      id          SERIAL PRIMARY KEY,
+      item_name   VARCHAR(100) NOT NULL,
+      item_type   VARCHAR(20)  NOT NULL,
+      build_title VARCHAR(255) NOT NULL,
+      mods        JSONB        NOT NULL,
+      helminth    VARCHAR(100),
+      rating      INT          DEFAULT 0,
+      tags        JSONB        DEFAULT '[]'::jsonb,
+      scraped_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unique_item_build UNIQUE (item_name, build_title)
+    );
+    CREATE INDEX IF NOT EXISTS idx_builds_item_name ON warframe_builds(item_name);
   `);
   console.log('[DB] Tables prêtes.');
 }
