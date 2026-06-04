@@ -12,8 +12,8 @@ async function ensureModel() {
   console.log(`[MODEL] Création/mise à jour de ${model}...`);
   const stream = await ollama.create({
     model,
-    from:       'qwen2.5:7b-instruct-q4_K_S',
-    parameters: { num_ctx: 16384, temperature: 0.7, num_predict: 1024 },
+    from:       'gemma2:9b-instruct-q4_K_M',
+    parameters: { num_ctx: 8192, temperature: 0.3, num_predict: 1024 },
     stream:     true,
   });
   for await (const chunk of stream) {
