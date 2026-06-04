@@ -1,10 +1,10 @@
 const { Ollama } = require('ollama');
 const api = require('./tools/warframeApi');
 const game = require('./tools/gameData');
-const { formatBuildResponse } = require('./tools/builds');
 const { getInventoryContext } = require('./tools/inventory');
 const { searchDrops } = require('./tools/drops');
 const { searchWiki } = require('./tools/wiki');
+const { searchBuilds } = require('./tools/overframe');
 
 const ollama = new Ollama({ host: process.env.OLLAMA_HOST ?? 'http://localhost:11434' });
 const MODEL  = process.env.OLLAMA_MODEL ?? 'warframe-bot';
@@ -12,7 +12,8 @@ const MODEL  = process.env.OLLAMA_MODEL ?? 'warframe-bot';
 const BASE_SYSTEM_PROMPT = `Tu es l'assistant IA Warframe de ce serveur Discord. Réponds en français, court et formatté pour Discord (Markdown : gras, listes, \`code\`).
 Tu maîtrises le modding (Primed, Galvanized, Corrupted), les dégâts IPS (Tranchant/Viral/Corrosif), le Helminth et le Steel Path.
 Pour les données live (fissures, Baro, Sortie, Nightwave) utilise TOUJOURS les outils — tes connaissances internes peuvent être obsolètes.
-Pour farmer un item utilise searchDrops. Pour les mécaniques détaillées utilise searchWiki.`;
+Pour farmer un item utilise searchDrops. Pour les mécaniques détaillées utilise searchWiki.
+Pour les builds meta (recommandations de mods, theorycraft) utilise searchBuilds — croiser avec l'inventaire du joueur pour signaler les mods manquants et où les farmer.`;
 
 const TOOLS = [
   {
@@ -109,14 +110,14 @@ const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'getBuildLink',
-      description: 'Génère un lien Overframe.gg pour trouver les meilleurs builds communautaires d\'un Warframe ou d\'une arme.',
+      name: 'searchBuilds',
+      description: 'Récupère les builds meta communautaires Overframe.gg pour un Warframe ou une arme : mods les plus utilisés, top builds notés, substituts Helminth. À utiliser dès qu\'on parle de build, modding ou theorycraft.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Nom exact du Warframe ou de l\'arme' },
+          query: { type: 'string', description: 'Nom du Warframe ou de l\'arme (ex: Saryn, Saryn Prime, Kuva Nukor, Nikana Prime)' },
         },
-        required: ['name'],
+        required: ['query'],
       },
     },
   },
@@ -161,7 +162,7 @@ const TOOL_MAP = {
   searchMod:    ({ query }) => game.searchMod(query),
   searchFrame:  ({ query }) => game.searchFrame(query),
   searchWeapon: ({ query }) => game.searchWeapon(query),
-  getBuildLink:  ({ name })  => formatBuildResponse(name),
+  searchBuilds:  ({ query }) => searchBuilds(query),
   searchDrops:   ({ query }) => searchDrops(query),
   searchWiki:    ({ query }) => searchWiki(query),
 };
