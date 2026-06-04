@@ -12,7 +12,7 @@ async function searchWikiDB(query) {
         OR LOWER(title) LIKE LOWER($2)
      ORDER BY LOWER(title) = LOWER($1) DESC,
               ts_rank(search_vec, plainto_tsquery('english', $1)) DESC
-     LIMIT 2`,
+     LIMIT 1`,
     [query, `%${query}%`]
   );
   return rows;
@@ -53,7 +53,7 @@ async function searchWikiLive(query) {
 async function searchWiki(query) {
   const rows = await searchWikiDB(query).catch(() => []);
   if (rows.length) {
-    return rows.map(r => `**${r.title}**\n${r.content.slice(0, 6000).replace(/\n{2,}/g, '\n')}`).join('\n\n').trim();
+    return rows.map(r => `**${r.title}**\n${r.content.slice(0, 20000).replace(/\n{2,}/g, '\n')}`).join('\n\n').trim();
   }
   return searchWikiLive(query);
 }
