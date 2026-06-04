@@ -17,6 +17,7 @@ COPY --from=builder /app/deploy-commands.js ./
 COPY --from=builder /app/commands ./commands
 COPY --from=builder /app/events ./events
 COPY --from=builder /app/src ./src
+COPY --from=builder /app/scripts ./scripts
 
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
