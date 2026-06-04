@@ -20,40 +20,30 @@ async function parseDat(buffer) {
 }
 
 function extractItems(raw) {
-  const items = [];
   const inv = raw?.Inventory ?? raw;
+  const map = new Map();
+
+  function add(uniqueName, itemType, itemCount, itemRank) {
+    if (map.has(uniqueName)) {
+      const e = map.get(uniqueName);
+      e.itemCount += itemCount;
+      e.itemRank = Math.max(e.itemRank, itemRank);
+    } else {
+      map.set(uniqueName, { uniqueName, itemType, itemCount, itemRank });
+    }
+  }
 
   for (const mod of inv?.Upgrades ?? []) {
     if (!mod.ItemType) continue;
-    items.push({
-      uniqueName: mod.ItemType,
-      itemType:   'Mod',
-      itemCount:  mod.ItemCount ?? 1,
-      itemRank:   mod.UpgradeFingerprint ? (JSON.parse(mod.UpgradeFingerprint)?.lvl ?? 0) : 0,
-    });
+    const rank = mod.UpgradeFingerprint ? (JSON.parse(mod.UpgradeFingerprint)?.lvl ?? 0) : 0;
+    add(mod.ItemType, 'Mod', mod.ItemCount ?? 1, rank);
   }
+  for (const frame of inv?.Suits     ?? []) { if (frame.ItemType) add(frame.ItemType, 'Warframe',  1, 0); }
+  for (const w     of inv?.LongGuns  ?? []) { if (w.ItemType)     add(w.ItemType,     'Primary',   1, 0); }
+  for (const w     of inv?.Pistols   ?? []) { if (w.ItemType)     add(w.ItemType,     'Secondary', 1, 0); }
+  for (const w     of inv?.Melee     ?? []) { if (w.ItemType)     add(w.ItemType,     'Melee',     1, 0); }
 
-  for (const frame of inv?.Suits ?? []) {
-    if (!frame.ItemType) continue;
-    items.push({ uniqueName: frame.ItemType, itemType: 'Warframe', itemCount: 1, itemRank: 0 });
-  }
-
-  for (const w of inv?.LongGuns ?? []) {
-    if (!w.ItemType) continue;
-    items.push({ uniqueName: w.ItemType, itemType: 'Primary', itemCount: 1, itemRank: 0 });
-  }
-
-  for (const w of inv?.Pistols ?? []) {
-    if (!w.ItemType) continue;
-    items.push({ uniqueName: w.ItemType, itemType: 'Secondary', itemCount: 1, itemRank: 0 });
-  }
-
-  for (const w of inv?.Melee ?? []) {
-    if (!w.ItemType) continue;
-    items.push({ uniqueName: w.ItemType, itemType: 'Melee', itemCount: 1, itemRank: 0 });
-  }
-
-  return items;
+  return [...map.values()];
 }
 
 async function processInventory(discordId, username, raw) {
