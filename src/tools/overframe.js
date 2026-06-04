@@ -111,7 +111,39 @@ async function searchBuilds(query) {
     return data;
   }
 
-  return `Impossible de récupérer les builds pour "${query}". Consulte : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
+  // Fallback enrichi : stats réelles depuis la DB locale
+  const { rows } = await pool.query(
+    `SELECT category, data FROM wf_knowledge WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+    [query]
+  ).catch(() => ({ rows: [] }));
+
+  if (rows.length) {
+    const item = rows[0].data;
+    const cat  = rows[0].category;
+    let info = `[Aucun build communautaire disponible pour "${query}" — base-toi sur ces stats réelles]\n`;
+    info += `Catégorie : ${cat}\n`;
+    if (cat === 'weapon') {
+      if (item.totalDamage)        info += `Dégâts totaux : ${item.totalDamage}\n`;
+      if (item.criticalChance)     info += `Crit : ${Math.round(item.criticalChance * 100)}%\n`;
+      if (item.criticalMultiplier) info += `Multi crit : ${item.criticalMultiplier}x\n`;
+      if (item.procChance)         info += `Status : ${Math.round(item.procChance * 100)}%\n`;
+      if (item.fireRate)           info += `Cadence : ${item.fireRate.toFixed(1)}\n`;
+      if (item.magazineSize)       info += `Chargeur : ${item.magazineSize}\n`;
+      if (item.productCategory)    info += `Type de mod compatible : ${item.productCategory}\n`;
+    } else if (cat === 'warframe') {
+      if (item.health)  info += `Santé : ${item.health}\n`;
+      if (item.shield)  info += `Bouclier : ${item.shield}\n`;
+      if (item.armor)   info += `Armure : ${item.armor}\n`;
+      if (item.power)   info += `Énergie : ${item.power}\n`;
+      if (item.abilities?.length) {
+        info += `Capacités : ${item.abilities.map(a => a.name).join(', ')}\n`;
+      }
+    }
+    info += `Overframe : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
+    return info;
+  }
+
+  return `Aucune donnée disponible pour "${query}". Consulte : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
 }
 
 module.exports = { searchBuilds };

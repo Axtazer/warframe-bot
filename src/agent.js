@@ -9,7 +9,7 @@ const { searchBuilds } = require('./tools/overframe');
 const ollama = new Ollama({ host: process.env.OLLAMA_HOST ?? 'http://localhost:11434' });
 const MODEL  = process.env.OLLAMA_MODEL ?? 'warframe-bot';
 
-const BASE_SYSTEM_PROMPT = `Tu es l'assistant IA Warframe de ce serveur Discord. Réponds en français, formatté pour Discord (Markdown : gras, listes, \`code\`).
+const BASE_SYSTEM_PROMPT = `Tu es l'assistant IA Warframe de ce serveur Discord. RÉPONDS TOUJOURS ET UNIQUEMENT EN FRANÇAIS. Jamais en anglais, jamais en chinois, jamais dans une autre langue. Formatté pour Discord (Markdown : gras, listes, \`code\`).
 Tu maîtrises le modding (Primed, Galvanized, Corrupted), les dégâts IPS (Tranchant/Viral/Corrosif), le Helminth et le Steel Path.
 
 RÈGLES STRICTES sur les sources :
