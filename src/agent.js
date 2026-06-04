@@ -22,11 +22,11 @@ STYLE DE RÉPONSE selon le type de question :
 
 LORE / HISTOIRE : Réponds de façon concise — un résumé clair et compréhensible, pas un dump de wiki. 3-5 phrases max sauf si l'utilisateur demande explicitement plus de détails ("explique en détail", "raconte tout", "approfondi").
 
-BUILDS : Réponds de façon complète et pédagogique. Pour chaque mod explique :
-  • Son rôle individuel dans le build
-  • Pourquoi il est combiné avec les autres (synergies, conditions déclenchées)
-  • Sa place dans la rotation de dégâts/survie
-  Inclus toujours les Arcanes recommandées et leur interaction avec le build.`;
+BUILDS : Réponds de façon complète et pédagogique.
+  OBLIGATOIRE avant de recommander un mod : appelle searchMod pour vérifier qu'il existe et que son champ "Compatible" correspond bien à la catégorie demandée (Rifle/Pistol/Melee/Shotgun pour une arme, ou le nom du Warframe pour une capacité). Ne recommande JAMAIS un mod de Warframe pour une arme, ni l'inverse.
+  Si searchBuilds retourne uniquement un lien URL sans données de build, dis-le clairement et base-toi sur les stats de l'arme/frame via searchMod et searchFrame/searchWeapon.
+  Pour chaque mod explique : son rôle, pourquoi il est combiné avec les autres (synergies), sa place dans la rotation.
+  Inclus toujours les Arcanes recommandées (searchWiki si besoin) et leur interaction avec le build.`;
 
 const TOOLS = [
   {
