@@ -1,4 +1,5 @@
 const { pool } = require('../database');
+const { searchModsByType } = require('./gameData');
 const HEADERS  = { 'User-Agent': 'WarframeDiscordBot/1.0' };
 const liveCache = new Map();
 const LIVE_TTL  = 30 * 60 * 1000;
@@ -139,7 +140,20 @@ async function searchBuilds(query) {
         info += `Capacités : ${item.abilities.map(a => a.name).join(', ')}\n`;
       }
     }
-    info += `Overframe : https://overframe.gg/search/?query=${encodeURIComponent(query)}`;
+    info += `Overframe : https://overframe.gg/search/?query=${encodeURIComponent(query)}\n\n`;
+
+    // Injecter le catalogue de mods compatibles directement
+    const modType = cat === 'warframe' ? 'Warframe'
+      : item.productCategory === 'LongGuns' ? 'Rifle'
+      : item.productCategory === 'Pistols'  ? 'Pistol'
+      : item.productCategory === 'Melee'    ? 'Melee'
+      : item.productCategory === 'Shotguns' ? 'Shotgun'
+      : null;
+
+    if (modType) {
+      const modCatalog = await searchModsByType(modType).catch(() => null);
+      if (modCatalog) info += modCatalog;
+    }
     return info;
   }
 
