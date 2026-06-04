@@ -53,7 +53,7 @@ async function searchWikiLive(query) {
 async function searchWiki(query) {
   const rows = await searchWikiDB(query).catch(() => []);
   if (rows.length) {
-    return rows.map(r => `**${r.title}**\n${r.content.slice(0, 20000).replace(/\n{2,}/g, '\n')}`).join('\n\n').trim();
+    return rows.map(r => `**${r.title}**\n${r.content.replace(/\n{2,}/g, '\n')}`).join('\n\n').trim();
   }
   return searchWikiLive(query);
 }
